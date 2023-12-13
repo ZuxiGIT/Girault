@@ -1,0 +1,3 @@
+import Girault
+
+Girault.Server()
