@@ -8,6 +8,7 @@ import Utils
 from pathlib import Path
 import socket
 import threading
+import random
 
 pdebug = Defaults.pdebug
 
@@ -176,6 +177,9 @@ class Client():
         else:
             self.log.info("Public key is correct")
 
+        self.sock.close()
+        self.sock = None
+
     def cli(self):
         while True:
             print("\nChoose an action:")
@@ -184,7 +188,9 @@ class Client():
             print("3. Connect to server")
             print("4. Establish a secret key with other client")
             print("5. Wait for a secret key establishing")
-            print("6. Exit")
+            print("6. Authenticate to an opponent")
+            print("7. Authenticate opponent")
+            print("8. Exit")
             print("\n> ", end='')
 
             choice = int(input())
@@ -254,11 +260,101 @@ class Client():
                 port = int(input())
                 self.wait_for_opponent(Defaults.Addr, port)
             elif choice == 6:
+                print("Enter yout opponent's addr and port (addr port)")
+                prefix = input('> ').split(' ')
+                opponent_addr = prefix[0]
+                opponent_port = int(prefix[1])
+                self.authenticate_to_opponent(opponent_addr, opponent_port)
+
+            elif choice == 7:
+                print("Enter your socket port: ", end='')
+                port = int(input())
+                self.authenticate_opponent(Defaults.Addr, port)
+
+            elif choice == 8:
                 print("Bye!")
                 return
 
             else:
                 print("\rWrong option\r", end='')
+
+    def authenticate_to_opponent(self, addr, port):
+        self.log.info("Creating a socket")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.log.info("Connecting to opponent")
+        try:
+            self.sock.connect((addr, port))
+        except socket.error as e:
+            self.log.error(f"Failed to establish connection with opponent "
+                           f" {addr}:{port}: {e} [probably remote is down]")
+
+        self.log.info("Connected to opponent")
+
+        r_a = random.getrandbits(220)
+        t = pow(self.g, r_a, self.n)
+
+        self.log.info("Sending id, public key and t to opponent")
+        message = Utils.serialize_integer(Utils.name_to_integer(self.name)) +\
+            Defaults.DATA_SEP + Utils.serialize_integer(self.key) +\
+            Defaults.DATA_SEP + Utils.serialize_integer(t)
+
+        self.sock.sendall(message)
+
+        self.log.info("Waiting for answer")
+        data = self.recv_from_sock(self.sock)
+        r_b = Utils.deserialize_integer(data)
+        self.log.info(f"Got R from opponent: {data}")
+
+        y = r_a + self.secret * r_b
+
+        message = Utils.serialize_integer(y)
+        self.sock.sendall(message)
+
+        data = self.recv_from_sock(self.sock)
+        data = Utils.deserialize_integer(data)
+
+        if data == 1:
+            self.log.info("Authentication success!")
+            print("Authentication success!")
+        else:
+            self.log.error("Authentication failure!")
+            print("Authentication failure!")
+
+        self.sock.close()
+        self.sock = None
+
+    def authenticate_opponent(self, addr, port):
+        self.log.info("Creating a socket")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind((addr, port))
+        self.log.info(f"Socket binded to {addr}:{port}")
+        self.sock.listen()
+
+        self.log.info("Waiting for incomming connection")
+        conn, client_addr = self.sock.accept()
+        self.log.info(f"Established connection with {client_addr}")
+
+        r = random.getrandbits(30)
+
+        data = self.recv_from_sock(conn)
+        data = data.split(Defaults.DATA_SEP)
+        i = Utils.deserialize_integer(data[0])
+        p = Utils.deserialize_integer(data[1])
+        t = Utils.deserialize_integer(data[2])
+
+        message = Utils.serialize_integer(r)
+        conn.sendall(message)
+
+        data = self.recv_from_sock(conn)
+        y = Utils.deserialize_integer(data)
+
+        v = (pow(p, self.e, self.n) + i % self.n) % self.n
+
+        res = t == pow(self.g, y, self.n) * pow(v, r, self.n) % self.n
+
+        conn.sendall(Utils.serialize_integer(res))
+        self.sock.close()
+        self.sock = None
 
     def import_pub_key(self, path):
         file = open(path, "r")
@@ -361,6 +457,9 @@ class Client():
 
         self.log.info(f"Generated session key {self.session_key}")
 
+        self.sock.close()
+        self.sock = None
+
     def wait_for_opponent(self, addr, port):
         self.log.info("Creating a socket")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -394,3 +493,5 @@ class Client():
                 self.secret, self.n)
 
         self.log.info(f"Generated session key {self.session_key}")
+        self.sock.close()
+        self.sock = None

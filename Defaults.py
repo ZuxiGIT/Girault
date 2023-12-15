@@ -1,7 +1,8 @@
 Addr = '127.0.0.1'
 Port = 65432
 Debug = True
-LogPath = 'log.log'
+# LogPath = 'log.log'
+LogPath = None
 
 DATA_SEP = b'\x00'*5
 
