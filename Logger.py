@@ -42,12 +42,18 @@ from datetime import datetime
 class Logger:
     def __init__(self, filepath: str = None):
         self.file = open(filepath, "a") if filepath is not None else None
+        self.postfix = None
+
+    def AddPostfix(self, postfix):
+        self.postfix = postfix
 
     def log(self, msg: str):
         res = datetime.now().strftime("[%Y.%m.%d %H:%M:%S.%f]")
+        res += self.postfix if self.postfix is not None else ''
         res += msg
         if self.file is not None:
-            self.file.write(res)
+            self.file.write(res+'\n')
+            self.file.flush()
         else:
             print(res)
 
